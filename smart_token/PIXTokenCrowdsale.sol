@@ -1,3 +1,5 @@
+pragma solidity ^0.4.4;
+
 /**
  * Overflow aware uint math functions.
  *
@@ -169,7 +171,9 @@ contract PIXToken is StandardToken, SafeMath {
 
     uint public secsPerBlock = 15;
     uint public secsInADay = 86400;
-    enum State { PreSale, Day1, Day2, Day3, Lockup, Running, Halted }; // the states through which this contract goes
+    enum State { PreSale, Day1, Day2, Day3, Lockup, Running, Halted } // the states through which this contract goes
+
+
 
     uint public capPreSale = 15 * 10**6;  // 15M USD cap for presale, this subtracts from day1 cap
     uint public capDay1 = 20 * 10**6;  // 20M USD cap for day 1
@@ -241,16 +245,16 @@ contract PIXToken is StandardToken, SafeMath {
     function getCurrentBonusInPercent() constant returns (uint) {
         State s = getCurrentState();
         if (s == State.Halted) throw;
-        else if(State.PreSale) return 20;
-        else if(State.Day1) return 15;
-        else if(State.Day2) return 10;
-        else if(State.Day3) return 5;
+        else if(s == State.PreSale) return 20;
+        else if(s == State.Day1) return 15;
+        else if(s == State.Day2) return 10;
+        else if(s == State.Day3) return 5;
         else return 0;
     }
 
     function getTokenPriceInWEI() constant returns (uint) {
         uint totalRaiseUSD = capDay1 + capDay2 + capDay3;
-        ethNeeded = (10 ** 18) * 100 * totalRaiseUSD / centsPerEth;  // times 100 because eth price is in cents, times 10**18 to get wei
+        uint ethNeeded = (10 ** 18) * 100 * totalRaiseUSD / centsPerEth;  // times 100 because eth price is in cents, times 10**18 to get wei
         return ethNeeded / totalTokensSale;
     }
 
@@ -282,26 +286,26 @@ contract PIXToken is StandardToken, SafeMath {
     function buyRecipient(address recipient, uint8 v, bytes32 r, bytes32 s) {
         bytes32 hash = sha256(msg.sender);
         require (ecrecover(hash,v,r,s) == signer);
-        Statue s = getCurrentState();
+        State st = getCurrentState();
         uint usdCentsRaise = safeDiv(safeMul(msg.value, centsPerEth), 10 ** 18); //divide by 10 ** 18 because msg.value is in wei
 
-        if(s == State.PreSale)
+        if(st == State.PreSale)
         {
             require(msg.sender==founder); //only founder can buy in pre-sale, on behalf of our pre-sale customers
             raisePreSale = safeAdd(raisePreSale, usdCentsRaise); //add current raise to pre-sell amount
             require(raisePreSale < 15 * 10**6 * 100); //ensure pre-sale cap, 15m usd * 100 so we have cents
         }
-        else if (s == State.Day1)
+        else if (st == State.Day1)
         {
             raiseDay1 = safeAdd(raiseDay1, usdCentsRaise); //add current raise to pre-sell amount
             require(raiseDay1 < (20 * 10**6 * 100 - raisePreSale)); //ensure day 1 cap, which is lower by the amount we pre-sold 
         }
-        else if (s == State.Day2)
+        else if (st == State.Day2)
         {
             raiseDay2 = safeAdd(raiseDay2, usdCentsRaise); //add current raise to pre-sell amount
             require(raiseDay2 < 20 * 10**6 * 100); //ensure day 2 cap
         }
-        else if (s == State.Day3)
+        else if (st == State.Day3)
         {
             raiseDay3 = safeAdd(raiseDay3, usdCentsRaise); //add current raise to pre-sell amount
             require(raiseDay3 < 20 * 10**6 * 100); //ensure day 3 cap
@@ -311,10 +315,10 @@ contract PIXToken is StandardToken, SafeMath {
         uint tokens = safeDiv(msg.value, getTokenPriceInWEI()); //calculate amount of tokens
         uint bonus = safeDiv(safeMul(tokens, getCurrentBonusInPercent()), 100); //calculate bonus
         
-        if(s == State.PreSale)
+        if(st == State.PreSale)
             totalTokensCompany = safeSub(totalTokensCompany, bonus); //the pre-sale bonuses go from the company tokens
 
-        totalTokens = safeAdd(tokens, bonus);
+        uint totalTokens = safeAdd(tokens, bonus);
 
         balances[recipient] = safeAdd(balances[recipient], totalTokens);
         totalSupply = safeAdd(totalSupply, totalTokens);
@@ -346,17 +350,18 @@ contract PIXToken is StandardToken, SafeMath {
         require(msg.sender==founder);
         require(getCurrentState() == State.Running);
 
+        uint tokens = 0;
         if(block.number > blockAfter1Month && !allocated1Month)
         {
             allocated1Month = true;
-            uint tokens = safeDiv(totalTokensCompany, 4);
+            tokens = safeDiv(totalTokensCompany, 4);
             balances[founder] = safeAdd(balances[founder], tokens);
             totalSupply = safeAdd(totalSupply, tokens);
         }
         else if(block.number > blockAfter1Year && !allocated1Year)
         {
             allocated1Year = true;
-            uint tokens = safeDiv(totalTokensCompany, 4);
+            tokens = safeDiv(totalTokensCompany, 4);
             balances[founder] = safeAdd(balances[founder], tokens);
             totalSupply = safeAdd(totalSupply, tokens);
             tokens = safeDiv(totalTokensReserve, 4);
@@ -366,7 +371,7 @@ contract PIXToken is StandardToken, SafeMath {
         else if(block.number > blockAfter2Year && !allocated2Year)
         {
             allocated2Year = true;
-            uint tokens = safeDiv(totalTokensCompany, 4);
+            tokens = safeDiv(totalTokensCompany, 4);
             balances[founder] = safeAdd(balances[founder], tokens);
             totalSupply = safeAdd(totalSupply, tokens);
             tokens = safeDiv(totalTokensReserve, 4);
@@ -376,7 +381,7 @@ contract PIXToken is StandardToken, SafeMath {
         else if(block.number > blockAfter3Year && !allocated3Year)
         {
             allocated3Year = true;
-            uint tokens = safeDiv(totalTokensCompany, 4);
+            tokens = safeDiv(totalTokensCompany, 4);
             balances[founder] = safeAdd(balances[founder], tokens);
             totalSupply = safeAdd(totalSupply, tokens);
             tokens = safeDiv(totalTokensReserve, 4);
