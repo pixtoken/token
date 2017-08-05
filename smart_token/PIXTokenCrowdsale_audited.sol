@@ -1,4 +1,4 @@
-pragma solidity ^0.4.14;
+pragma solidity ^0.4.13;
 
 /**
  * Overflow aware uint math functions.
@@ -39,38 +39,38 @@ contract SafeMath {
  *
  * https://github.com/ethereum/EIPs/issues/20
  */
-contract Token {
+interface Token {
 
     /// @return total amount of tokens
-    function totalSupply() constant returns (uint256 supply) {}
+    function totalSupply() constant returns (uint256 supply);
 
     /// @param _owner The address from which the balance will be retrieved
     /// @return The balance
-    function balanceOf(address _owner) constant returns (uint256 balance) {}
+    function balanceOf(address _owner) constant returns (uint256 balance);
 
     /// @notice send `_value` token to `_to` from `msg.sender`
     /// @param _to The address of the recipient
     /// @param _value The amount of token to be transferred
     /// @return Whether the transfer was successful or not
-    function transfer(address _to, uint256 _value) returns (bool success) {}
+    function transfer(address _to, uint256 _value) returns (bool success);
 
     /// @notice send `_value` token to `_to` from `_from` on the condition it is approved by `_from`
     /// @param _from The address of the sender
     /// @param _to The address of the recipient
     /// @param _value The amount of token to be transferred
     /// @return Whether the transfer was successful or not
-    function transferFrom(address _from, address _to, uint256 _value) returns (bool success) {}
+    function transferFrom(address _from, address _to, uint256 _value) returns (bool success);
 
     /// @notice `msg.sender` approves `_addr` to spend `_value` tokens
     /// @param _spender The address of the account able to transfer the tokens
     /// @param _value The amount of wei to be approved for transfer
     /// @return Whether the approval was successful or not
-    function approve(address _spender, uint256 _value) returns (bool success) {}
+    function approve(address _spender, uint256 _value) returns (bool success);
 
     /// @param _owner The address of the account owning tokens
     /// @param _spender The address of the account able to transfer the tokens
     /// @return Amount of remaining tokens allowed to spent
-    function allowance(address _owner, address _spender) constant returns (uint256 remaining) {}
+    function allowance(address _owner, address _spender) constant returns (uint256 remaining);
 
     event Transfer(address indexed _from, address indexed _to, uint256 _value);
     event Approval(address indexed _owner, address indexed _spender, uint256 _value);
@@ -151,10 +151,6 @@ contract PIXToken is StandardToken, SafeMath {
     // This address is used as a controller address, in order to properly handle administration of the token.
     address public founder = 0x0;
 
-    // Signing Address - Used to validate that the depositor has successfully accepted the ToS on the main page
-    // Review the function() for full details.
-    address public signer = 0x0;
-
     // Deposit Address - The funds will be sent here immediately after payments are made to the contract
     address public deposit = 0x0;
 
@@ -167,15 +163,15 @@ contract PIXToken is StandardToken, SafeMath {
     1. The value of the token fluctuates in reference to the centsPerEth set on the contract.
     2. The tokens are priced in cents.  So all token purchases will be calculated out live at that time.
 
-    Funding stages:
+    Funding Stages:
     1. Pre-Sale, there will be 15M USD ( 125M tokens ) for sale. Bonus of 20%
     2. Day 1 sale, there will be 20M USD - the pre-sale amount of tokens for sale. (~166.6m tokens - Pre-Sale tokens) Bonus of 15%
     3. Day 2 sale, there will be 20M USD (~166.6m tokens) tokens for sale.  Bonus of 10%
     4. Days 3-10 sale, there will be 20M USD (~166.6m tokens) tokens for sale.  Bonus of 5%
 
-    Post-Funding Stuff:
-    1. 30% of the total token count is reserved for release every year, at 1/4th of the originally reserved value per year
-    2. 20% of the total token count (Minus the number of bonus tokens), is issued out to the team when the sale has completed.
+    Post-Sale:
+    1. 30% of the total token count is reserved for release every year, at 1/4th of the originally reserved value per year.
+    2. 20% of the total token count [Minus the number of excess bonus tokens from the pre-sale] is issued out to the team when the sale has completed.
     3. Purchased tokens come available to be withdrawn 31 days after the sale has completed.
     */
 
@@ -218,24 +214,23 @@ contract PIXToken is StandardToken, SafeMath {
     bool public allocated4Year = false;
 
     // Token count information
-    uint public totalTokensSale = 500000000; //total number of tokens we plan to sell in the ico, excluding bonuses and reserve
+    uint public totalTokensSale = 500000000; //total number of tokens being sold in the ICO, excluding bonuses, reserve, and team distributions
     uint public totalTokensReserve = 330000000;
     uint public totalTokensCompany = 220000000;
 
-    bool public halted = false; //the founder address can set this to true to halt the crowdsale due to emergency
+    bool public halted = false; //the founder address can set this to true to halt the crowdsale due to emergency.
 
-    mapping(address => uint256) presaleWhitelist; // Presale Whitelist
+    mapping(address => uint256) presaleWhitelist; // Pre-sale Whitelist
 
     event Buy(address indexed sender, uint eth, uint fbt);
     event Withdraw(address indexed sender, address to, uint eth);
     event AllocateTokens(address indexed sender);
 
-    function PIXToken(address signerAddress, address depositAddress) {
+    function PIXToken(address depositAddress) {
         /*
             Initialize the contract with a sane set of owners
         */
         founder = msg.sender;  // Allocate the founder address as a usable address separate from deposit.
-        signer = signerAddress;  // Codify the signing address for deposits
         deposit = depositAddress;  // Store the deposit address.
     }
 
@@ -284,16 +279,8 @@ contract PIXToken is StandardToken, SafeMath {
     /*
         Entry point for purchasing for one's self.
     */
-    function buy(uint8 v, bytes32 r, bytes32 s) payable public {
-        buyRecipient(msg.sender, v, r, s);
-    }
-
-    /*
-        Entry point for purchasing for one's self during presale
-    */
-    function buyPresale() payable public {
-        require(getCurrentState() == State.PreSale && presaleWhitelist[msg.sender] > 0);
-        buyRecipient(msg.sender, 0x0, 0x0, 0x0);
+    function buy() payable public {
+        buyRecipient(msg.sender);
     }
 
     /*
@@ -302,23 +289,16 @@ contract PIXToken is StandardToken, SafeMath {
         2. Should only allow the founder to order during the pre-sale
         3. Should correctly calculate the values to be paid out during different stages of the contract.
     */
-    function buyRecipient(address recipient, uint8 v, bytes32 r, bytes32 s) payable public {
+    function buyRecipient(address recipient) payable public {
         State current_state = getCurrentState(); // Get the current state of the contract.
-        if (current_state != State.PreSale) {
-            // If the contract is not in presale, require that the depositors have a successful hash stored.
-            bytes32 hash = sha256(msg.sender);
-            require (ecrecover(hash,v,r,s) == signer); // Validate that the hash is correct for the sending address.
-        } else {
-            // If the contract is in presale, ensure that the msg.sender is in the presaleWhitelist
-            require (presaleWhitelist[msg.sender] > 0);
-        }
         uint usdCentsRaise = safeDiv(safeMul(msg.value, centsPerEth), weiPerEther); // Get the current number of cents raised by the payment.
 
         if(current_state == State.PreSale)
         {
+            require (presaleWhitelist[msg.sender] > 0);
             raisePreSale = safeAdd(raisePreSale, usdCentsRaise); //add current raise to pre-sell amount
             require(raisePreSale < capPreSale && usdCentsRaise < presaleWhitelist[msg.sender]); //ensure pre-sale cap, 15m usd * 100 so we have cents
-            presaleWhitelist[msg.sender] = presaleWhitelist[msg.sender] - usdCentsRaise; // Remove the amount purchased from the presale permitted for that user
+            presaleWhitelist[msg.sender] = presaleWhitelist[msg.sender] - usdCentsRaise; // Remove the amount purchased from the pre-sale permitted for that user
         }
         else if (current_state == State.Day1)
         {
@@ -339,6 +319,11 @@ contract PIXToken is StandardToken, SafeMath {
 
         uint tokens = safeDiv(msg.value, getTokenPriceInWEI()); // Calculate number of tokens to be paid out
         uint bonus = safeDiv(safeMul(tokens, getCurrentBonusInPercent()), 100); // Calculate number of bonus tokens
+
+        if (current_state == State.PreSale) {
+            // Remove the extra 5% from the totalTokensCompany, in order to keep the 550m on track.
+            totalTokensCompany = safeSub(totalTokensCompany, safeDiv(bonus, 4));
+        }
 
         uint totalTokens = safeAdd(tokens, bonus);
 
@@ -432,9 +417,9 @@ contract PIXToken is StandardToken, SafeMath {
     }
 
     /*
-        Add people to the presale whitelist
+        Add people to the pre-sale whitelist
         Amount should be the value in USD that the purchaser is allowed to buy
-        IE: 100 is 100$ is 10000 cents.  The correct value to enter is 100
+        IE: 100 is $100 is 10000 cents.  The correct value to enter is 100
     */
     function addPresaleWhitelist(address toWhitelist, uint256 amount){
         require(msg.sender==founder && amount > 0);
@@ -465,17 +450,6 @@ contract PIXToken is StandardToken, SafeMath {
         return super.transferFrom(_from, _to, _value);
     }
 
-    /**
-     * Do not allow direct deposits.
-     *
-     * All crowdsale depositors must have read the legal agreement.
-     * This is confirmed by having them signing the terms of service on the website.
-     * The give their crowdsale Ethereum source address on the website.
-     * Website signs this address using crowdsale private key (different from founders key).
-     * buy() takes this signature as input and rejects all deposits that do not have
-     * signature you receive after reading terms of service.
-     *
-     */
     function() {
         revert();
     }
